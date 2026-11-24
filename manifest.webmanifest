@@ -1,6 +1,6 @@
 {
-  "name": "Skat",
-  "short_name": "Skat",
+  "name": "WeSkat",
+  "short_name": "WeSkat",
   "start_url": "./",
   "scope": "./",
   "display": "standalone",

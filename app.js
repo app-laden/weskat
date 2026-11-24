@@ -17,7 +17,7 @@
 
   const me = { id: SS.get('id', null), name: SS.get('name', '') };
   if (!me.id) { me.id = Net.randCode(10); SS.set('id', me.id); }
-  const prefs = Object.assign({ four: true, oneTap: false, vibrate: true, conn: 'internet' }, LS.get('prefs', {}));
+  const prefs = Object.assign({ four: true, oneTap: false, vibrate: true, conn: 'internet', size: 0 }, LS.get('prefs', {}));
   Cards.setFour(prefs.four);
   const savePrefs = () => LS.set('prefs', prefs);
 
@@ -362,7 +362,7 @@
   }
   function logo() {
     const cs = ['cJ', 'sA', 'hT'];
-    return `<div class="logo"><div class="fan">${cs.map((c, i) => `<img src="${Cards.faceUrl(c)}" style="transform:rotate(${(i - 1) * 18}deg)">`).join('')}</div><h1>Skat</h1></div>`;
+    return `<div class="logo"><div class="fan">${cs.map((c, i) => `<img src="${Cards.faceUrl(c)}" style="transform:rotate(${(i - 1) * 18}deg)">`).join('')}</div><h1>WeSkat</h1></div>`;
   }
   function connSeg() {
     const o = [['internet', 'Mit Internet'], ['hotspot', 'Hotspot mit Netz'], ['offline', 'Ohne Netz']];
@@ -558,7 +558,7 @@
     const app = $('#app');
     app.dataset.screen = 'game'; app._html = '';
     app.innerHTML = `<div id="table">
-      <div class="tbar"><button class="iconbtn" id="tMenu">☰</button><div class="tinfo" id="tInfo"></div><button class="iconbtn" id="tList" style="width:auto;padding:0 10px;font-size:14px;font-weight:700">Liste</button></div>
+      <div class="tbar"><button class="iconbtn" id="tMenu">☰</button><div class="tinfo" id="tInfo"></div><button class="iconbtn" id="tSize" title="Kartengröße" style="width:auto;padding:0 8px;font-weight:800;line-height:1"><span style="font-size:11px">A</span><span style="font-size:18px">A</span></button><button class="iconbtn" id="tList" style="width:auto;padding:0 10px;font-size:14px;font-weight:700">Liste</button></div>
       <div class="conn" id="tConn"></div>
       <div class="plate left" id="pl-left"></div><div class="plate right" id="pl-right"></div><div class="plate me" id="pl-me"></div>
       <div class="backs" id="bk-left"></div><div class="backs" id="bk-right"></div>
@@ -571,6 +571,7 @@
     T.el.table.addEventListener('scroll', () => { T.el.table.scrollTop = 0; T.el.table.scrollLeft = 0; });
     $('#tMenu').onclick = showMenu;
     $('#tList').onclick = showList;
+    $('#tSize').onclick = () => { setSize((prefs.size || 0) + 1); toast('Kartengröße: ' + SIZES[prefs.size], 1200); };
     bindHand();
     T.built = true;
     requestWake();
@@ -584,6 +585,16 @@
     let cw, tw, ow;
     if (land) { cw = Math.max(46, Math.min(104, Hh / 5.1, W / 10.5)); tw = Math.max(46, Math.min(108, Hh / 5.3)); ow = Math.max(20, Math.min(40, Hh / 13)); }
     else { cw = Math.max(50, Math.min(112, W / 5.3, Hh / 7.4)); tw = Math.max(54, Math.min(126, W / 3.9, Hh / 7)); ow = Math.max(22, Math.min(44, W / 11)); }
+    // Kartengröße (Darstellung): 0 = normal, 1 = groß, 2 = sehr groß
+    const f = [1, 1.2, 1.4][prefs.size] || 1;
+    cw = land ? Math.min(cw * f, Hh / 3.6) : Math.min(cw * f, W / 3.7, Hh / 5.6);
+    tw = tw * f;
+    {
+      const handTop0 = Hh - (cw * 1.5 + cw * 0.55 + 6);
+      const fanB = 50 + 52 + ow * 1.6;
+      const room = land ? (handTop0 - 50 - 8) / 1.15 : (handTop0 - 50 - fanB) / 1.3;
+      tw = Math.max(46, Math.min(tw, room / 1.5));
+    }
     const ch = cw * 1.5;
     const handH = ch + cw * 0.55 + 6;
     const top = 50;
@@ -598,7 +609,7 @@
     const handTop = Hh - handH;
     g.cx = W / 2;
     g.cy = land ? (top + handTop) / 2 + 6 : Math.max(fanBottom + g.th * 0.7, (fanBottom + handTop - 50) / 2 + 8);
-    g.mePlate = { x: 8, y: handTop - (land ? 40 : 46) };
+    g.mePlate = { x: 8, y: land ? Math.max(fanBottom + 6, handTop - 40) : handTop - 46 };
     g.panelBottom = land ? handH - 6 : handH + 50;
     return g;
   }
@@ -796,7 +807,7 @@
       T.skatEls = [0, 1].map(i => {
         const el = mkTcard('', false);
         el.style.transition = 'transform .3s, opacity .3s';
-        place(el, g.cx - g.tw / 2 + (i ? g.tw * 0.18 : -g.tw * 0.18), g.cy - g.th / 2, i ? 6 : -6, 0.85);
+        place(el, g.cx - g.tw / 2 + (i ? g.tw * 0.16 : -g.tw * 0.16), g.cy - g.th * (g.land ? 0.5 : 0.78), i ? 6 : -6, 0.72);
         return el;
       });
     } else if (!showSkat && T.skatEls.length) {
@@ -1157,8 +1168,10 @@
       ['oneTap', 'Karte mit einem Tipp spielen', 'Sonst: antippen hebt die Karte an, nochmal tippen (oder nach oben wischen) spielt sie'],
       ['vibrate', 'Vibrieren, wenn ich dran bin', 'Nur Android']];
     const draw = sb => {
-      sb.innerHTML = items.map(([k, t, d]) => `<div class="tog"><span>${t}<small>${d}</small></span><div class="sw ${prefs[k] ? 'on' : ''}" data-k="${k}"></div></div>`).join('')
+      sb.innerHTML = `<div class="tog" style="display:block"><span>Kartengröße<small>Jederzeit umstellbar, auch über den Knopf <b>A A</b> oben im Spiel</small></span>
+          <div class="seg" id="szSeg" style="margin-top:8px">${SIZES.map((t, i) => `<button data-s="${i}" class="${(prefs.size || 0) === i ? 'on' : ''}">${t[0].toUpperCase() + t.slice(1)}</button>`).join('')}</div></div>` + items.map(([k, t, d]) => `<div class="tog"><span>${t}<small>${d}</small></span><div class="sw ${prefs[k] ? 'on' : ''}" data-k="${k}"></div></div>`).join('')
         + `<div style="display:flex;gap:4px;justify-content:center;margin-top:14px">${['cA', 'sK', 'hQ', 'dJ', 'cT'].map(c => `<img src="${Cards.faceUrl(c)}" style="width:56px;border-radius:5px">`).join('')}</div>`;
+      sb.querySelector('#szSeg').onclick = e => { const b = e.target.closest('button'); if (!b) return; setSize(+b.dataset.s); draw(sb); };
       sb.querySelectorAll('.sw').forEach(s => s.onclick = () => {
         const k = s.dataset.k; prefs[k] = !prefs[k]; savePrefs(); Cards.setFour(prefs.four);
         draw(sb);
@@ -1191,7 +1204,7 @@
       <h3>Haftungsausschluss</h3>
       <p>Die App wird ohne Gewähr bereitgestellt. Für Fehler, Ausfälle oder falsch berechnete Spielstände wird keine Haftung übernommen. Kein Spiel um Geld.</p>
       <h3 id="h-about">Über diese App</h3>
-      <p>Private, kostenlose App ohne Werbung. Kontakt und Rückmeldungen: github.com/app-laden<br>Version ${VERSION}. Verwendet PeerJS (MIT), qrcode-generator (MIT) und jsQR (Apache 2.0).</p>`,
+      <p>WeSkat – private, kostenlose App ohne Werbung. Kontakt und Rückmeldungen: github.com/app-laden<br>Version ${VERSION}. Verwendet PeerJS (MIT), qrcode-generator (MIT) und jsQR (Apache 2.0).</p>`,
       sb => { if (section === 'about') { const e = $('#h-about', sb); if (e) e.scrollIntoView(); } });
   }
 
@@ -1209,17 +1222,20 @@
     if (H && H.mode === 'internet' && H.peer && (H.peer.disconnected || H.peer.destroyed)) hostOpenPeer(H.code);
   });
   let rsT;
-  window.addEventListener('resize', () => {
-    clearTimeout(rsT);
-    rsT = setTimeout(() => {
-      if (A.screen === 'game' && A.view && T.built) {
-        T.resized = true; T.el['bk-left']._k = T.el['bk-right']._k = null;
-        for (const el of T.trick.values()) el.remove(); T.trick.clear();
-        T.skatEls.forEach(e => e.remove()); T.skatEls = [];
-        renderTable(A.view);
-      }
-    }, 150);
-  });
+  function relayout() {
+    if (A.screen === 'game' && A.view && T.built) {
+      T.resized = true; T.el['bk-left']._k = T.el['bk-right']._k = null;
+      for (const el of T.trick.values()) el.remove(); T.trick.clear();
+      T.skatEls.forEach(e => e.remove()); T.skatEls = [];
+      T.panelSig = '';
+      renderTable(A.view);
+    }
+  }
+  const SIZES = ['normal', 'groß', 'sehr groß'];
+  function setSize(n) {
+    prefs.size = ((n % 3) + 3) % 3; savePrefs(); relayout();
+  }
+  window.addEventListener('resize', () => { clearTimeout(rsT); rsT = setTimeout(relayout, 150); });
 
   // ---------- Update (Service Worker) ----------
   if ('serviceWorker' in navigator && !TEST && location.protocol === 'https:') {
