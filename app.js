@@ -68,6 +68,12 @@
     };
     if (resume && resume.rules) H.rules = resume.rules;
     A.role = 'host'; C = null;
+    if (mode === 'demo') {
+      H.code = 'DEMO';
+      H.players.push({ id: 'bot1', name: 'Lisa (PC)', bot: true, online: true }, { id: 'bot2', name: 'Max (PC)', bot: true, online: true });
+      hostStartMatch();
+      return;
+    }
     if (mode === 'test') { H.code = 'TEST'; H.peer = Net.testHost({ onLink: hostOnLink }); }
     else if (mode === 'internet') hostOpenPeer(H.code || Net.randCode());
     A.screen = H.match ? 'game' : 'hostLobby';
@@ -136,11 +142,11 @@
   function lobbyInfo() {
     return {
       code: H.code, mode: H.mode, started: !!H.match, rules: H.rules,
-      players: H.players.map(p => ({ id: p.id, name: p.name, online: !!(p.local || p.online), host: !!p.local }))
+      players: H.players.map(p => ({ id: p.id, name: p.name, online: !!(p.local || p.online || p.bot), host: !!p.local }))
     };
   }
   function hostSave() {
-    if (!H || H.mode === 'test') return;
+    if (!H || H.mode === 'test' || H.mode === 'demo') return;
     LS.set('host', { mode: H.mode, code: H.code, players: H.players.map(p => ({ id: p.id, name: p.name })), seats: H.seats, match: H.match, rules: H.rules, t: Date.now() });
   }
   function hostBroadcast() {
@@ -157,6 +163,27 @@
     A.view = H.match ? Skat.view(H.match, seatOf(me.id)) : null;
     if (H.match && A.screen !== 'game') A.screen = 'game';
     render();
+    scheduleBots();
+  }
+  // Computer-Spieler im Demo-Modus
+  function scheduleBots() {
+    if (!H || H.mode !== 'demo' || !H.match) return;
+    clearTimeout(H.botT);
+    const m = H.match, g = m.g;
+    const bots = H.players.map((p, i) => p.bot ? seatOf(p.id) : -1).filter(s => s >= 0);
+    const seat = bots.find(s => Skat.botAction(m, s));
+    if (seat == null) return;
+    let delay = 900;
+    if (g.phase === 'play') delay = g.trick.length === 0 && g.tricks.length ? 1900 : 750;
+    if (g.phase === 'done') delay = 400;
+    if (g.phase === 'discard' || g.phase === 'declare') delay = 1100;
+    H.botT = setTimeout(() => {
+      if (!H || H.match !== m) return;
+      const a = Skat.botAction(m, seat);
+      if (!a) return;
+      const r = Skat.act(m, seat, a);
+      if (!r.error) hostBroadcast();
+    }, delay);
   }
   function hostStartMatch() {
     if (H.players.length !== 3) return;
@@ -168,6 +195,8 @@
     hostBroadcast();
   }
   function hostEnd() {
+    if (H) clearTimeout(H.botT);
+    if (H && H.mode === 'demo') H.match = null;
     if (H) {
       for (const p of H.players) if (p.link) { try { p.link.send({ t: 'bye' }); } catch (e) { } }
       setTimeout(() => {
@@ -355,6 +384,7 @@
         <div class="card-box"><h2>Verbindung</h2>${connSeg()}</div>
         <button class="btn pri" id="bHost">Tisch eröffnen</button>
         <button class="btn" id="bJoin">Am Tisch Platz nehmen</button>
+        <button class="btn" id="bDemo">Demo: allein gegen den Computer</button>
         ${resOk ? `<button class="btn" id="bResume">Tisch ${esc(res.code)} fortsetzen${res.match ? ' (Spiel ' + res.match.gameNo + ')' : ''}</button>` : ''}
         ${clOk ? `<button class="btn" id="bRejoin">Wieder an Tisch ${esc(cl.code)} setzen</button>` : ''}
         <div class="row" style="margin-top:6px"><button class="btn small" id="bRules">Regeln</button><button class="btn small" id="bLook">Darstellung</button><button class="btn small" id="bHelp">Hilfe</button></div>
@@ -446,6 +476,7 @@
         if (TEST) { clientStart('test', 'TEST'); return; }
         if (prefs.conn === 'offline') clientStart('offline'); else { A.screen = 'join'; render(); }
       });
+      on('bDemo', () => { if (!me.name) { me.name = 'Ich'; } hostCreate('demo'); });
       on('bResume', () => { if (!nameOk()) return; const r = LS.get('host'); hostCreate(r.mode, r); });
       on('bRejoin', () => { if (!nameOk()) return; const c = LS.get('client'); clientStart(c.mode, c.code); });
       on('bRules', showRules); on('bLook', showLook); on('bHelp', () => showHelp()); on('bAbout', e => { e.preventDefault(); showHelp('about'); });
@@ -621,7 +652,7 @@
       el.innerHTML = C.mode === 'offline' ? 'Verbindung verloren <button id="reP">Neu koppeln</button>' : 'Verbindung unterbrochen – verbinde neu …';
       const b = $('#reP'); if (b) b.onclick = () => { C.offStage = 'scan'; A.screen = 'joinOffline'; resetTable(); render(); };
     } else if (A.role === 'host' && H) {
-      const off = H.players.filter(p => !p.local && !p.online);
+      const off = H.players.filter(p => !p.local && !p.online && !p.bot);
       if (off.length && H.match) {
         el.style.display = 'block';
         el.innerHTML = esc(off.map(p => p.name).join(', ')) + ' nicht verbunden' + (H.mode === 'offline' ? ' <button id="reP">Koppeln</button>' : '');
@@ -633,6 +664,7 @@
     let l1 = `<b>Spiel ${v.gameNo}</b> · ${esc(v.names[v.dealer])} gibt`;
     let l2 = '';
     const b = [];
+    if (H && H.mode === 'demo') b.push('<span class="badge" style="background:#2b6cb0;color:#fff">DEMO</span>');
     if (v.bock) b.push('<span class="badge bock">BOCK</span>');
     if (v.game && v.game.type === 'ramsch') b.push('<span class="badge ramsch">RAMSCH</span>');
     if (v.kontra && v.kontra.k) b.push(`<span class="badge kontra">${v.kontra.re ? 'RE' : 'KONTRA'}</span>`);
@@ -649,7 +681,7 @@
     for (const p of ['left', 'right', 'me']) {
       const s = seatAt(v, p);
       const el = T.el['pl-' + p];
-      const online = A.lobby && A.lobby.players ? (() => { const id = H ? H.seats && H.seats[s] : null; if (H) { const pl = H.players.find(x => x.id === id); return pl ? (pl.local || pl.online) : true; } const lp = A.lobby.players.find(x => x.name === v.names[s]); return lp ? lp.online : true; })() : true;
+      const online = A.lobby && A.lobby.players ? (() => { const id = H ? H.seats && H.seats[s] : null; if (H) { const pl = H.players.find(x => x.id === id); return pl ? !!(pl.local || pl.online || pl.bot) : true; } const lp = A.lobby.players.find(x => x.name === v.names[s]); return lp ? lp.online : true; })() : true;
       let role = roleName(v, s);
       if (v.declarer === s && v.game && v.game.type !== 'ramsch') role = `<span class="decl">spielt ${esc(typeLabel(v.game.type))}</span>`;
       else if (v.declarer === s && v.phase !== 'bid') role = '<span class="decl">Alleinspieler</span>';
@@ -1047,7 +1079,7 @@
   function showMenu() {
     const items = [['list', 'Spielliste'], ['last', 'Letzter Stich'], ['rules', 'Regeln'], ['look', 'Darstellung'], ['help', 'Hilfe']];
     if (A.role === 'host' && H && H.mode === 'offline') items.push(['pair', 'Mitspieler neu koppeln']);
-    items.push(A.role === 'host' ? ['end', 'Tisch beenden'] : ['leave', 'Tisch verlassen']);
+    items.push(A.role === 'host' ? ['end', H && H.mode === 'demo' ? 'Demo beenden' : 'Tisch beenden'] : ['leave', 'Tisch verlassen']);
     sheet('Menü', `<div class="menu">${items.map(([k, t]) => `<button data-k="${k}">${t}</button>`).join('')}</div>`, sb => {
       sb.onclick = e => {
         const b = e.target.closest('button'); if (!b) return;
@@ -1058,7 +1090,7 @@
         if (k === 'look') showLook();
         if (k === 'help') showHelp();
         if (k === 'pair') hostPair();
-        if (k === 'end' && confirm('Tisch beenden? Das Spiel endet für alle.')) hostEnd();
+        if (k === 'end' && (H && H.mode === 'demo' ? true : confirm('Tisch beenden? Das Spiel endet für alle.'))) hostEnd();
         if (k === 'leave' && confirm('Tisch verlassen?')) clientLeave();
       };
     });
@@ -1140,6 +1172,7 @@
     sheet('Hilfe', `
       <h3>So geht's</h3>
       <p>Alle drei öffnen die App. <b>Einer</b> tippt „Tisch eröffnen“ – sein Handy ist der Tisch: es mischt, teilt aus und prüft die Züge. Die anderen tippen „Am Tisch Platz nehmen“. Der Tisch legt die Sitzordnung fest (im Uhrzeigersinn, mit ▲ verschieben) und startet das Spiel.</p>
+      <p><b>Demo:</b> „Demo: allein gegen den Computer“ startet sofort ein Spiel ohne Verbindung gegen zwei Computer-Spieler (Lisa und Max). Zum Ausprobieren der Bedienung; die Computer spielen einfach, aber regelgerecht. Beenden über ☰ → „Demo beenden“.</p>
       <h3>Verbindung</h3>
       <ul><li><b>Mit Internet</b> (empfohlen): Jeder nutzt seine mobilen Daten. Der Tisch zeigt einen Code aus 4 Zeichen und einen QR-Code. Ein gemeinsames WLAN ist nicht nötig, der Datenverbrauch ist winzig.</li>
       <li><b>Hotspot mit Netz</b>: Hat nur ein Handy Netz, macht es einen Hotspot auf. Die anderen verbinden sich damit und haben darüber Internet – dann wie „Mit Internet“.</li>

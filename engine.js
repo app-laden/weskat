@@ -553,7 +553,127 @@
     return { value: mult * BASE[type], mat, mult, base: BASE[type] };
   }
 
+  // ---------- Computer-Spieler (Demo) ----------
+  function bestGame(cards, withSkatUnknown) {
+    // liefert {type, value, ok} für das stärkste Spiel
+    const jacks = cards.filter(c => rank(c) === 'J').length;
+    const aces = cards.filter(c => rank(c) === 'A').length;
+    const tens = cards.filter(c => rank(c) === 'T' && cards.includes(suit(c) + 'A')).length;
+    let best = null;
+    for (const s of SUITS) {
+      const tr = cards.filter(c => eff(c, s) === 'T').length;
+      const side = aces - (cards.includes(s + 'A') ? 1 : 0);
+      const score = tr * 1.0 + jacks * 0.6 + side * 0.9 + tens * 0.4;
+      const need = withSkatUnknown ? 6.4 : 6.0;
+      const v = (Math.abs(matadors(cards, s)) + 1) * BASE[s];
+      if (score >= need && (!best || score > best.score + 0.01 || (Math.abs(score - best.score) < 0.01 && v > best.value))) best = { type: s, value: v, score };
+    }
+    if ((jacks >= 3 && aces >= 2) || (jacks >= 2 && aces >= 3) || (jacks === 4 && aces >= 1)) {
+      const v = (Math.abs(matadors(cards, 'grand')) + 1) * 24;
+      best = { type: 'grand', value: v, score: 99 };
+    }
+    if (!best) {
+      // Null, wenn fast nur kleine Karten
+      const high = cards.filter(c => ['A', 'K', 'Q'].includes(rank(c)) || (rank(c) === 'J')).length;
+      const sevens = cards.filter(c => rank(c) === '7').length;
+      if (high <= 1 && sevens >= 2) best = { type: 'null', value: 23, score: 0 };
+    }
+    return best;
+  }
+  function botDiscard(cards, type) {
+    const cand = cards.filter(c => eff(c, type) !== 'T' && rank(c) !== 'A');
+    const len = s => cards.filter(c => eff(c, type) === s).length;
+    cand.sort((a, b) => {
+      const sa = len(suit(a)) * 10 - PTS[rank(a)] - (rank(a) === 'T' && !cards.includes(suit(a) + 'A') ? 15 : 0);
+      const sb = len(suit(b)) * 10 - PTS[rank(b)] - (rank(b) === 'T' && !cards.includes(suit(b) + 'A') ? 15 : 0);
+      return sa - sb;
+    });
+    const pick = cand.slice(0, 2);
+    while (pick.length < 2) { const r = cards.filter(c => !pick.includes(c)).sort((a, b) => PTS[rank(a)] - PTS[rank(b)])[0]; pick.push(r); }
+    return pick;
+  }
+  function botPlay(m, seat) {
+    const g = m.g, type = g.game.type;
+    const hand = g.hands[seat];
+    const legal = legalCards(hand, g.trick, type);
+    if (legal.length === 1) return legal[0];
+    const pts = c => PTS[rank(c)];
+    const low = arr => arr.slice().sort((a, b) => (pts(a) - pts(b)) || (strength(a, type) - strength(b, type)))[0];
+    const highPts = arr => arr.slice().sort((a, b) => (pts(b) - pts(a)) || (strength(a, type) - strength(b, type)))[0];
+    const wins = c => trickWinner(g.trick.concat([{ seat, card: c }]), type) === seat;
+    const winners = legal.filter(wins);
+    const losers = legal.filter(c => !wins(c));
+    if (type === 'ramsch' || (type === 'null' && seat === g.declarer)) {
+      if (!g.trick.length) return legal.slice().sort((a, b) => strength(a, type) - strength(b, type))[0];
+      if (losers.length) return losers.slice().sort((a, b) => strength(b, type) - strength(a, type))[0];
+      return legal.slice().sort((a, b) => strength(a, type) - strength(b, type))[0];
+    }
+    if (type === 'null') { // Gegenspieler im Null: kleine Karten
+      return legal.slice().sort((a, b) => strength(a, type) - strength(b, type))[0];
+    }
+    const decl = g.declarer;
+    const isDecl = seat === decl;
+    if (!g.trick.length) {
+      const trumps = legal.filter(c => eff(c, type) === 'T');
+      const aces = legal.filter(c => rank(c) === 'A' && eff(c, type) !== 'T');
+      if (isDecl && trumps.length >= 2) return trumps.slice().sort((a, b) => strength(b, type) - strength(a, type))[0];
+      if (aces.length) return aces[0];
+      const side = legal.filter(c => eff(c, type) !== 'T');
+      return low(side.length ? side : legal);
+    }
+    const curWin = trickWinner(g.trick, type);
+    const partnerWinning = !isDecl && curWin !== decl;
+    const last = g.trick.length === 2;
+    if (partnerWinning) {
+      if (last || (g.trick.length === 1 && !legal.some(c => eff(c, type) === eff(g.trick[0].card, type)))) return highPts(losers.length ? losers : legal);
+      return low(losers.length ? losers : legal);
+    }
+    const trickPts = g.trick.reduce((s, t) => s + pts(t.card), 0);
+    if (winners.length && (last || trickPts >= 10 || isDecl)) {
+      return winners.slice().sort((a, b) => strength(a, type) - strength(b, type) || pts(b) - pts(a))[0];
+    }
+    return low(losers.length ? losers : legal);
+  }
+  function botAction(m, seat) {
+    const g = m.g; if (!g) return null;
+    const hand = g.hands[seat];
+    if (g.phase === 'done') return g.ready[seat] ? null : { a: 'ready' };
+    if (g.phase === 'bid') {
+      const b = g.bid; if (b.turn !== seat) return null;
+      const bg = bestGame(hand, true);
+      const max = bg ? (bg.type === 'null' ? 23 : bg.value) : 0;
+      if (b.stage === 3) return max >= 18 ? { a: 'bid' } : { a: 'pass' };
+      if (seat === b.sayer) { const n = nextBid(b.value); return n <= max ? { a: 'bid', v: n } : { a: 'pass' }; }
+      return b.value <= max ? { a: 'hold' } : { a: 'pass' };
+    }
+    if (g.phase === 'skat' && g.declarer === seat) return { a: 'pickup' };
+    if (g.phase === 'discard' && g.declarer === seat) {
+      const bg = bestGame(hand, false) || { type: 'grand' };
+      g._botType = bg.type === 'null' ? 'grand' : bg.type;
+      return { a: 'discard', cards: botDiscard(hand, g._botType) };
+    }
+    if (g.phase === 'declare' && g.declarer === seat) {
+      let type = g._botType || ((bestGame(hand, false) || {}).type) || 'grand';
+      const cards = g.tookSkat ? hand.concat(g.skat) : hand;
+      if (previewValue(cards, type, { hand: !g.tookSkat }).value < g.bid.value) {
+        let bestV = 0;
+        for (const t of [...SUITS, 'grand']) { const v = previewValue(cards, t, { hand: !g.tookSkat }).value; if (v >= g.bid.value && (!bestV || v < bestV)) { bestV = v; type = t; } }
+      }
+      return { a: 'declare', type };
+    }
+    if (g.phase === 'schieben' && g.turn === seat) {
+      if (g.schieb.picked) {
+        const c = hand.filter(x => !(m.rules.schiebenNoJacks && rank(x) === 'J')).sort((a, b) => PTS[rank(b)] - PTS[rank(a)]).slice(0, 2);
+        return { a: 'schieb', mode: 'push', cards: c };
+      }
+      return { a: 'schieb', mode: 'pass' };
+    }
+    if (g.phase === 'play' && g.turn === seat) return { a: 'play', card: botPlay(m, seat) };
+    return null;
+  }
+
   const api = {
+    botAction,
     SUITS, RANKS, PTS, BASE, BIDS, SUITNAME, RANKNAME, DEFAULT_RULES, OFFICIAL,
     suit, rank, points, newDeck, shuffle, eff, strength, trickWinner, legalCards, sortHand, matadors,
     nextBid, newMatch, startGame, act, view, roles, gameName, previewValue
