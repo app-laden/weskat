@@ -62,7 +62,7 @@
   function hostCreate(mode, resume) {
     H = {
       mode, code: resume ? resume.code : null, peer: null, status: '',
-      players: resume ? resume.players.map(p => Object.assign({}, p, { local: p.id === me.id, online: p.id === me.id, link: null })) : [{ id: me.id, name: me.name, local: true, online: true }],
+      players: resume ? resume.players.map(p => Object.assign({}, p, { local: p.id === me.id, online: p.id === me.id || !!p.bot, link: null })) : [{ id: me.id, name: me.name, local: true, online: true }],
       seats: resume ? resume.seats : null,
       match: resume ? resume.match : null,
       rules: Object.assign({}, Skat.DEFAULT_RULES, LS.get('rules', {})),
@@ -144,12 +144,12 @@
   function lobbyInfo() {
     return {
       code: H.code, mode: H.mode, started: !!H.match, rules: H.rules,
-      players: H.players.map(p => ({ id: p.id, name: p.name, online: !!(p.local || p.online || p.bot), host: !!p.local }))
+      players: H.players.map(p => ({ id: p.id, name: p.name, online: !!(p.local || p.online || p.bot), host: !!p.local, bot: !!p.bot }))
     };
   }
   function hostSave() {
     if (!H || H.mode === 'test' || H.mode === 'demo') return;
-    LS.set('host', { mode: H.mode, code: H.code, players: H.players.map(p => ({ id: p.id, name: p.name })), seats: H.seats, match: H.match, rules: H.rules, t: Date.now() });
+    LS.set('host', { mode: H.mode, code: H.code, players: H.players.map(p => ({ id: p.id, name: p.name, bot: !!p.bot })), seats: H.seats, match: H.match, rules: H.rules, t: Date.now() });
   }
   function hostBroadcast() {
     if (!H) return;
@@ -169,7 +169,7 @@
   }
   // Computer-Spieler im Demo-Modus
   function scheduleBots() {
-    if (!H || H.mode !== 'demo' || !H.match) return;
+    if (!H || !H.match || !H.players.some(p => p.bot)) return;
     clearTimeout(H.botT);
     const m = H.match, g = m.g;
     const bots = H.players.map((p, i) => p.bot ? seatOf(p.id) : -1).filter(s => s >= 0);
@@ -414,6 +414,7 @@
           ${!p.host ? `<button class="iconbtn" data-kick="${i}">✕</button>` : ''}</li>`).join('')}
         ${[...Array(3 - n)].map(() => '<li><span class="dot off"></span><span class="nm" style="color:var(--dim)">wartet …</span></li>').join('')}
         </ul>
+        ${n < 3 ? `<button class="btn small" id="bBot" style="margin-top:10px">+ Computer als Mitspieler</button><p class="hint" style="margin-top:4px">Für ein Spiel zu zweit: Der Computer übernimmt den dritten Platz. Mit ✕ wieder entfernen.</p>` : ''}
         <label class="lbl" style="margin-top:12px">Wer gibt zuerst?</label>
         <select class="inp" id="fd" style="font-size:16px;padding:10px"><option value="random">Zufall</option>${L.players.map((p, i) => `<option value="${i}" ${H.firstDealer == i ? 'selected' : ''}>${esc(p.name)}</option>`).join('')}</select></div>
         <button class="btn" id="bRules">Regeln: ${esc(rulesSummary(H.rules))}</button>
@@ -485,6 +486,13 @@
     }
     if (screen === 'hostLobby') {
       on('bPair', hostPair);
+      on('bBot', () => {
+        if (H.players.length >= 3) return;
+        const used = H.players.map(p => p.name);
+        const name = ['Lisa (PC)', 'Max (PC)'].find(x => !used.includes(x)) || 'PC';
+        H.players.push({ id: 'bot-' + Net.randCode(6), name, bot: true, online: true });
+        hostBroadcast();
+      });
       on('bStart', hostStartMatch);
       on('bEnd', () => { if (confirm('Tisch schließen?')) hostEnd(); });
       on('bRules', showRules);
@@ -1239,6 +1247,7 @@
       <h3>So geht's</h3>
       <p>Alle drei öffnen die App. <b>Einer</b> tippt „Tisch eröffnen“ – sein Handy ist der Tisch: es mischt, teilt aus und prüft die Züge. Die anderen tippen „Am Tisch Platz nehmen“. Der Tisch legt die Sitzordnung fest (im Uhrzeigersinn, mit ▲ verschieben) und startet das Spiel.</p>
       <p><b>Demo:</b> „Demo: allein gegen den Computer“ startet sofort ein Spiel ohne Verbindung gegen zwei Computer-Spieler (Lisa und Max). Zum Ausprobieren der Bedienung; die Computer spielen einfach, aber regelgerecht. Beenden über ☰ → „Demo beenden“.</p>
+      <p><b>Zu zweit:</b> Am Tisch „+ Computer als Mitspieler“ tippen – der Computer übernimmt den dritten Platz, der zweite Mensch verbindet sich wie gewohnt.</p>
       <h3>Verbindung</h3>
       <ul><li><b>Mit Internet</b> (empfohlen): Jeder nutzt seine mobilen Daten. Der Tisch zeigt einen Code aus 4 Zeichen und einen QR-Code. Ein gemeinsames WLAN ist nicht nötig, der Datenverbrauch ist winzig.</li>
       <li><b>Hotspot mit Netz</b>: Hat nur ein Handy Netz, macht es einen Hotspot auf. Die anderen verbinden sich damit und haben darüber Internet – dann wie „Mit Internet“.</li>
