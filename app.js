@@ -389,6 +389,7 @@
         <button class="btn" id="bDemo">Demo: allein gegen den Computer</button>
         ${resOk ? `<button class="btn" id="bResume">Tisch ${esc(res.code)} fortsetzen${res.match ? ' (Spiel ' + res.match.gameNo + ')' : ''}</button>` : ''}
         ${clOk ? `<button class="btn" id="bRejoin">Wieder an Tisch ${esc(cl.code)} setzen</button>` : ''}
+        <button class="btn" id="bShare">WeSkat weitergeben (QR-Code)</button>
         <div class="row" style="margin-top:6px"><button class="btn small" id="bRules">Regeln</button><button class="btn small" id="bLook">Darstellung</button><button class="btn small" id="bHelp">Hilfe</button></div>
         <div class="foot">Version ${VERSION} · <a href="#" id="bAbout">Über diese App</a></div></div>`;
     },
@@ -482,6 +483,7 @@
       on('bDemo', () => { if (!me.name) { me.name = 'Ich'; } hostCreate('demo'); });
       on('bResume', () => { if (!nameOk()) return; const r = LS.get('host'); hostCreate(r.mode, r); });
       on('bRejoin', () => { if (!nameOk()) return; const c = LS.get('client'); clientStart(c.mode, c.code); });
+      on('bShare', showShare);
       on('bRules', showRules); on('bLook', showLook); on('bHelp', () => showHelp()); on('bAbout', e => { e.preventDefault(); showHelp('about'); });
     }
     if (screen === 'hostLobby') {
@@ -1110,13 +1112,14 @@
   //  Menü, Liste, Regeln, Darstellung, Hilfe
   // ======================================================================
   function showMenu() {
-    const items = [['list', 'Spielliste'], ['last', 'Letzter Stich'], ['rules', 'Regeln'], ['look', 'Darstellung'], ['help', 'Hilfe']];
+    const items = [['share', 'App teilen (QR-Code)'], ['list', 'Spielliste'], ['last', 'Letzter Stich'], ['rules', 'Regeln'], ['look', 'Darstellung'], ['help', 'Hilfe']];
     if (A.role === 'host' && H && H.mode === 'offline') items.push(['pair', 'Mitspieler neu koppeln']);
     items.push(A.role === 'host' ? ['end', H && H.mode === 'demo' ? 'Demo beenden' : 'Tisch beenden'] : ['leave', 'Tisch verlassen']);
     sheet('Menü', `<div class="menu">${items.map(([k, t]) => `<button data-k="${k}">${t}</button>`).join('')}</div>`, sb => {
       sb.onclick = e => {
         const b = e.target.closest('button'); if (!b) return;
         const k = b.dataset.k; closeSheet();
+        if (k === 'share') showShare();
         if (k === 'list') showList();
         if (k === 'last') showLast();
         if (k === 'rules') showRules();
@@ -1206,6 +1209,21 @@
       });
     };
     sheet('Darstellung', '', draw);
+  }
+  // App-Adresse per QR-Code weitergeben
+  function showShare() {
+    const url = location.origin + location.pathname.replace(/index\.html$/, '');
+    sheet('WeSkat teilen', `<p style="text-align:center;margin-top:0">Mitspieler scannen diesen Code mit der Kamera ihres Handys und öffnen den Link.</p>
+      <div class="qr">${Net.qrSvg(url, 'M')}</div>
+      <p style="text-align:center;font-size:15px;word-break:break-all"><b>${esc(url)}</b></p>
+      <div class="row">${navigator.share ? '<button class="btn" id="shShare">Teilen …</button>' : ''}<button class="btn" id="shCopy">Link kopieren</button></div>
+      <p class="hint">Tipp: Danach die App zum Home-Bildschirm hinzufügen (Hilfe → Installation). Zum Mitspielen an einem Tisch reicht später der Tisch-Code.</p>`, sb => {
+      const sh = $('#shShare', sb); if (sh) sh.onclick = () => navigator.share({ title: 'WeSkat', text: 'Skat zu dritt am Handy', url }).catch(() => { });
+      $('#shCopy', sb).onclick = async () => {
+        try { await navigator.clipboard.writeText(url); toast('Link kopiert'); }
+        catch (e) { toast(url, 4000); }
+      };
+    });
   }
   // Farben per Ziehen ordnen
   function bindSuitDrag(box, onChange) {

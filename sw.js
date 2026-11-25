@@ -1,5 +1,5 @@
 /* Skat – Offline-Speicher */
-const VERSION = '0.7.0';
+const VERSION = '0.7.1';
 const CACHE = 'skat-' + VERSION;
 const FILES = ['./', 'index.html', 'app.js', 'engine.js', 'cards.js', 'net.js',
   'peerjs.min.js', 'qrcode.js', 'jsqr.js',
