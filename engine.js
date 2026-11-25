@@ -90,9 +90,9 @@
     return follow.length ? follow : hand.slice();
   }
   // Sortierung der Hand
-  function sortHand(hand, type) {
+  function sortHand(hand, type, order) {
     const t = type || 'grand';
-    const suitOrder = ['c', 's', 'h', 'd'];
+    const suitOrder = Array.isArray(order) && order.length === 4 ? order : order === 'alt' ? ['c', 'h', 's', 'd'] : ['c', 's', 'h', 'd'];
     const key = c => {
       const e = eff(c, t);
       let g = e === 'T' ? 0 : 1 + suitOrder.indexOf(e);

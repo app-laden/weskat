@@ -17,7 +17,9 @@
 
   const me = { id: SS.get('id', null), name: SS.get('name', '') };
   if (!me.id) { me.id = Net.randCode(10); SS.set('id', me.id); }
-  const prefs = Object.assign({ four: true, oneTap: false, vibrate: true, conn: 'internet', size: 0 }, LS.get('prefs', {}));
+  const prefs = Object.assign({ four: false, order: ['c', 's', 'h', 'd'], resort: true, oneTap: false, vibrate: true, conn: 'internet', size: 0 }, LS.get('prefs', {}));
+  if (!prefs.v3) { prefs.four = false; prefs.v3 = 1; try { localStorage.setItem('skat-prefs', JSON.stringify(prefs)); } catch (e) { } }
+  if (!Array.isArray(prefs.order) || prefs.order.length !== 4) prefs.order = prefs.order === 'alt' ? ['c', 'h', 's', 'd'] : ['c', 's', 'h', 'd'];
   Cards.setFour(prefs.four);
   const savePrefs = () => LS.set('prefs', prefs);
 
@@ -563,7 +565,7 @@
       <div class="plate left" id="pl-left"></div><div class="plate right" id="pl-right"></div><div class="plate me" id="pl-me"></div>
       <div class="backs" id="bk-left"></div><div class="backs" id="bk-right"></div>
       <div class="openc" id="oc-left"></div><div class="openc" id="oc-right"></div>
-      <div id="panel"></div>
+      <div id="panel"></div><div id="kbtn"></div>
       <div id="hand"></div></div>`;
     T.el = { table: $('#table'), info: $('#tInfo'), hand: $('#hand'), panel: $('#panel'), conn: $('#tConn') };
     ['left', 'right', 'me'].forEach(p => T.el['pl-' + p] = $('#pl-' + p));
@@ -654,7 +656,7 @@
     if (myTurnNow && !myTurnBefore) vibrate(25);
     T.prev = v;
     T.pending = null;
-    renderInfo(v); renderPlates(v); renderOpp(v); renderTrick(v); renderHand(v); renderPanel(v); renderConn();
+    renderInfo(v); renderPlates(v); renderOpp(v); renderTrick(v); renderHand(v); renderPanel(v); renderKontra(v); renderConn();
   }
   function renderConn() {
     const el = T.el.conn;
@@ -713,7 +715,7 @@
     for (const p of ['left', 'right']) {
       const s = seatAt(v, p);
       const bk = T.el['bk-' + p], oc = T.el['oc-' + p];
-      const open = v.open && v.open.seat === s ? v.open.cards : null;
+      const open = v.open && v.open.seat === s ? Skat.sortHand(v.open.cards, prefs.resort ? v.game.type : 'grand', prefs.order) : null;
       const n = open ? 0 : (v.counts ? v.counts[s] : 0);
       const key = n + '|' + (open ? open.join() : '');
       if (bk._k !== key) {
@@ -847,10 +849,14 @@
     if (v.phase === 'schieben' && v.turn === v.seat && v.schieb.picked) return 'push';
     return null;
   }
+  function sortType(v) {
+    if (!prefs.resort) return 'grand';
+    if (v.phase === 'declare' && v.declarer === v.seat && T.decl && T.decl.type) return T.decl.type;
+    const t = v.game && v.game.type;
+    return !t || t === 'ramsch' ? 'grand' : t;
+  }
   function handOrder(v) {
-    let cards = v.hand.slice();
-    if (v.phase === 'declare' && v.declarer === v.seat && T.decl && T.decl.type) cards = Skat.sortHand(cards, T.decl.type);
-    return cards;
+    return Skat.sortHand(v.hand, sortType(v), prefs.order);
   }
   function renderHand(v) {
     const g = T.geom, hEl = T.el.hand;
@@ -955,31 +961,33 @@
       }
       if (b.stage === 3) {
         return {
-          sig: 'b3', html: `<div class="pbox"><div class="q">Beide haben gepasst.<br>Spielst du für <b>18</b>?</div><div class="btns"><button class="btn pri" data-a="bid">18 spielen</button><button class="btn" data-a="pass">Passe</button></div></div>`,
+          sig: 'b3', html: `<div class="pbox cp"><div class="q">Beide passen – spielst du <b>18</b>?</div><div class="btns"><button class="btn pri" data-a="bid">18 spielen</button><button class="btn" data-a="pass">Passe</button></div></div>`,
           bind: p => p.querySelectorAll('[data-a]').forEach(x => x.onclick = () => act({ a: x.dataset.a }))
         };
       }
       if (b.turn === b.sayer) {
         const higher = Skat.BIDS.filter(x => x > b.next).slice(0, 18);
+        const more = T.bidMore === b.value;
         return {
-          sig: 'bs' + b.value + b.listener, html: `<div class="pbox"><div class="q">Du reizt <b>${N(b.listener)}</b>${b.value ? ' · bisher ' + b.value : ''}</div>
-          <div class="btns"><button class="btn pri" data-v="${b.next}" style="font-size:22px">${b.next}</button><button class="btn" data-pass>Passe</button></div>
-          <div class="chips">${higher.map(x => `<button data-v="${x}">${x}</button>`).join('')}</div></div>`,
+          sig: 'bs' + b.value + b.listener + more, html: `<div class="pbox cp"><div class="q">Du reizt <b>${N(b.listener)}</b>${b.value ? ' · bisher ' + b.value : ''}</div>
+          <div class="btns"><button class="btn pri" data-v="${b.next}">${b.next}</button><button class="btn" data-more style="flex:.55">${more ? 'weniger' : 'mehr'}</button><button class="btn" data-pass>Passe</button></div>
+          ${more ? `<div class="chips">${higher.map(x => `<button data-v="${x}">${x}</button>`).join('')}</div>` : ''}</div>`,
           bind: p => {
             p.querySelectorAll('[data-v]').forEach(x => x.onclick = () => act({ a: 'bid', v: +x.dataset.v }));
             p.querySelector('[data-pass]').onclick = () => act({ a: 'pass' });
+            p.querySelector('[data-more]').onclick = () => { T.bidMore = more ? null : b.value; renderPanel(v, true); };
           }
         };
       }
       return {
-        sig: 'bl' + b.value, html: `<div class="pbox"><div class="q">${N(b.sayer)} sagt <b style="font-size:22px">${b.value}</b></div><div class="btns"><button class="btn pri" data-a="hold">Ja</button><button class="btn" data-a="pass">Passe</button></div></div>`,
+        sig: 'bl' + b.value, html: `<div class="pbox cp"><div class="q">${N(b.sayer)} sagt <b>${b.value}</b></div><div class="btns"><button class="btn pri" data-a="hold">Ja</button><button class="btn" data-a="pass">Passe</button></div></div>`,
         bind: p => p.querySelectorAll('[data-a]').forEach(x => x.onclick = () => act({ a: x.dataset.a }))
       };
     }
     if (v.phase === 'skat') {
       if (v.declarer !== meS) return { sig: 'sw', html: `<div class="waitmsg">${N(v.declarer)} spielt (${v.bid.value}) – nimmt den Skat oder spielt Hand …</div>` };
       return {
-        sig: 'sk', html: `<div class="pbox"><div class="q">Du hast das Spiel für <b>${v.bid.value}</b>.</div><div class="btns"><button class="btn pri" data-a="pickup">Skat aufnehmen</button><button class="btn" data-a="hand">Hand spielen</button></div></div>`,
+        sig: 'sk', html: `<div class="pbox cp"><div class="q">Du hast das Spiel für <b>${v.bid.value}</b>.</div><div class="btns"><button class="btn pri" data-a="pickup">Skat aufnehmen</button><button class="btn" data-a="hand">Hand spielen</button></div></div>`,
         bind: p => p.querySelectorAll('[data-a]').forEach(x => x.onclick = () => act({ a: x.dataset.a }))
       };
     }
@@ -988,7 +996,7 @@
       const sel = [...T.sel];
       const pts = Skat.points(sel);
       return {
-        sig: 'd' + sel.join(), html: `<div class="pbox"><div class="q">Zwei Karten antippen und drücken${sel.length ? ` · ${pts} Augen` : ''}</div><div class="btns"><button class="btn pri" id="dOk" ${sel.length === 2 ? '' : 'disabled'}>Drücken</button></div></div>`,
+        sig: 'd' + sel.join(), html: `<div class="pbox cp"><div class="q">Zwei Karten antippen und drücken${sel.length ? ` · ${pts} Augen` : ''}</div><div class="btns"><button class="btn pri" id="dOk" ${sel.length === 2 ? '' : 'disabled'}>Drücken</button></div></div>`,
         bind: p => { p.querySelector('#dOk').onclick = () => { const c = [...T.sel]; T.sel.clear(); act({ a: 'discard', cards: c }); }; }
       };
     }
@@ -1034,23 +1042,18 @@
       const s = v.schieb;
       if (v.turn !== meS) return { sig: 'rw' + v.turn, html: `<div class="waitmsg">Ramsch! ${N(v.turn)} ist beim Schieben dran …${s.doubles ? ' (' + s.doubles + '× geschoben)' : ''}</div>` };
       if (!s.picked) return {
-        sig: 'rp' + s.doubles, html: `<div class="pbox"><div class="q"><b>Ramsch!</b> Alle haben gepasst – wer die meisten Augen hat, verliert.${s.doubles ? `<br>Bisher ${s.doubles}× geschoben.` : ''}</div><div class="btns"><button class="btn" data-m="pickup">Skat aufnehmen</button><button class="btn pri" data-m="pass">Schieben (×2)</button></div></div>`,
+        sig: 'rp' + s.doubles, html: `<div class="pbox cp"><div class="q"><b>Ramsch!</b> Alle haben gepasst – wer die meisten Augen hat, verliert.${s.doubles ? `<br>Bisher ${s.doubles}× geschoben.` : ''}</div><div class="btns"><button class="btn" data-m="pickup">Skat aufnehmen</button><button class="btn pri" data-m="pass">Schieben (×2)</button></div></div>`,
         bind: p => p.querySelectorAll('[data-m]').forEach(x => x.onclick = () => act({ a: 'schieb', mode: x.dataset.m }))
       };
       const sel = [...T.sel];
       return {
-        sig: 'rs' + sel.join(), html: `<div class="pbox"><div class="q">Zwei Karten an ${N((meS + 1) % 3)} weitergeben${s.noJacks ? ' (keine Buben)' : ''}</div><div class="btns"><button class="btn pri" id="rOk" ${sel.length === 2 ? '' : 'disabled'}>Weitergeben</button></div></div>`,
+        sig: 'rs' + sel.join(), html: `<div class="pbox cp"><div class="q">Zwei Karten an ${N((meS + 1) % 3)} weitergeben${s.noJacks ? ' (keine Buben)' : ''}</div><div class="btns"><button class="btn pri" id="rOk" ${sel.length === 2 ? '' : 'disabled'}>Weitergeben</button></div></div>`,
         bind: p => { p.querySelector('#rOk').onclick = () => { const c = [...T.sel]; T.sel.clear(); act({ a: 'schieb', mode: 'push', cards: c }); }; }
       };
     }
     if (v.phase === 'play') {
-      const btn = v.canKontra ? '<button class="pill" data-a="kontra">Kontra</button>' : v.canRe ? '<button class="pill" data-a="re">Re</button>' : '';
-      let hint = '';
-      if (v.turn === meS && v.trick.length === 0 && v.tricksPlayed === 0) hint = `<div class="waitmsg">Du spielst aus</div>`;
-      return {
-        sig: 'p' + btn + hint, html: btn + hint,
-        bind: p => p.querySelectorAll('[data-a]').forEach(x => x.onclick = () => { if (confirm(x.dataset.a === 'kontra' ? 'Kontra geben? (verdoppelt)' : 'Re geben? (verdoppelt nochmal)')) act({ a: x.dataset.a }); })
-      };
+      if (v.turn === meS && v.trick.length === 0 && v.tricksPlayed === 0) return { sig: 'pa', html: `<div class="waitmsg">Du spielst aus</div>` };
+      return none;
     }
     if (v.phase === 'done') {
       const wait = T.showLast ? T.showLast.until - Date.now() : 0;
@@ -1058,6 +1061,17 @@
       return resultPanel(v);
     }
     return none;
+  }
+  function renderKontra(v) {
+    const el = $('#kbtn'); if (!el) return;
+    const k = v.phase === 'play' ? (v.canKontra ? 'kontra' : v.canRe ? 're' : '') : '';
+    if (el._k === k) return;
+    el._k = k;
+    el.innerHTML = k ? `<button class="kb">${k === 'kontra' ? 'Kontra' : 'Re'}</button>` : '';
+    const g = T.geom;
+    el.style.top = (g.mePlate.y + 4) + 'px';
+    const b = el.firstChild;
+    if (b) b.onclick = () => { if (confirm(k === 'kontra' ? 'Kontra geben? (verdoppelt)' : 'Re geben? (verdoppelt nochmal)')) act({ a: k }); };
   }
   function resultPanel(v) {
     const r = v.result; if (!r) return { sig: 'x', html: '' };
@@ -1169,8 +1183,12 @@
       ['vibrate', 'Vibrieren, wenn ich dran bin', 'Nur Android']];
     const draw = sb => {
       sb.innerHTML = `<div class="tog" style="display:block"><span>Kartengröße<small>Jederzeit umstellbar, auch über den Knopf <b>A A</b> oben im Spiel</small></span>
-          <div class="seg" id="szSeg" style="margin-top:8px">${SIZES.map((t, i) => `<button data-s="${i}" class="${(prefs.size || 0) === i ? 'on' : ''}">${t[0].toUpperCase() + t.slice(1)}</button>`).join('')}</div></div>` + items.map(([k, t, d]) => `<div class="tog"><span>${t}<small>${d}</small></span><div class="sw ${prefs[k] ? 'on' : ''}" data-k="${k}"></div></div>`).join('')
+          <div class="seg" id="szSeg" style="margin-top:8px">${SIZES.map((t, i) => `<button data-s="${i}" class="${(prefs.size || 0) === i ? 'on' : ''}">${t[0].toUpperCase() + t.slice(1)}</button>`).join('')}</div></div>
+        <div class="tog" style="display:block"><span>Reihenfolge der Farben<small>Farben mit dem Finger in die gewünschte Reihenfolge ziehen. Buben stehen immer vorn.</small></span>
+          <div id="orDrag" class="sdrag">${prefs.order.map(x => `<div class="stile" data-s="${x}">${Cards.pipSvg(x, 30)}<span>${Skat.SUITNAME[x]}</span></div>`).join('')}</div></div>
+        <div class="tog"><span>Nach dem Ansagen umsortieren<small>Trümpfe nach vorn; bei Null werden Buben und Zehner in die Farben einsortiert (A K D B 10 9 8 7). Aus: Die Hand bleibt so sortiert wie beim Reizen.</small></span><div class="sw ${prefs.resort ? 'on' : ''}" data-k="resort"></div></div>` + items.map(([k, t, d]) => `<div class="tog"><span>${t}<small>${d}</small></span><div class="sw ${prefs[k] ? 'on' : ''}" data-k="${k}"></div></div>`).join('')
         + `<div style="display:flex;gap:4px;justify-content:center;margin-top:14px">${['cA', 'sK', 'hQ', 'dJ', 'cT'].map(c => `<img src="${Cards.faceUrl(c)}" style="width:56px;border-radius:5px">`).join('')}</div>`;
+      bindSuitDrag(sb.querySelector('#orDrag'), () => { savePrefs(); if (A.view && A.screen === 'game') { T.el['bk-left']._k = T.el['bk-right']._k = null; renderTable(A.view); } });
       sb.querySelector('#szSeg').onclick = e => { const b = e.target.closest('button'); if (!b) return; setSize(+b.dataset.s); draw(sb); };
       sb.querySelectorAll('.sw').forEach(s => s.onclick = () => {
         const k = s.dataset.k; prefs[k] = !prefs[k]; savePrefs(); Cards.setFour(prefs.four);
@@ -1180,6 +1198,41 @@
       });
     };
     sheet('Darstellung', '', draw);
+  }
+  // Farben per Ziehen ordnen
+  function bindSuitDrag(box, onChange) {
+    let drag = null;
+    const tiles = () => [...box.querySelectorAll('.stile')];
+    box.addEventListener('pointerdown', e => {
+      const el = e.target.closest('.stile'); if (!el) return;
+      e.preventDefault();
+      const ts = tiles(), r0 = ts[0].getBoundingClientRect(), r1 = ts[1].getBoundingClientRect();
+      drag = { el, x0: e.clientX, step: r1.left - r0.left, idx: ts.indexOf(el), start: ts.indexOf(el) };
+      el.classList.add('drag');
+      try { el.setPointerCapture(e.pointerId); } catch (x) { }
+    });
+    box.addEventListener('pointermove', e => {
+      if (!drag) return;
+      const dx = e.clientX - drag.x0;
+      let ni = Math.max(0, Math.min(3, Math.round(drag.start + dx / drag.step)));
+      if (ni !== drag.idx) {
+        const ts = tiles().filter(t => t !== drag.el);
+        ts.splice(ni, 0, drag.el);
+        ts.forEach(t => box.appendChild(t));
+        drag.idx = ni;
+      }
+      drag.el.style.transform = `translateX(${dx - (drag.idx - drag.start) * drag.step}px) scale(1.08)`;
+    });
+    const end = () => {
+      if (!drag) return;
+      drag.el.classList.remove('drag'); drag.el.style.transform = '';
+      const changed = drag.idx !== drag.start;
+      drag = null;
+      prefs.order = tiles().map(t => t.dataset.s);
+      if (changed) onChange();
+    };
+    box.addEventListener('pointerup', end);
+    box.addEventListener('pointercancel', end);
   }
   function showHelp(section) {
     sheet('Hilfe', `
