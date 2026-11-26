@@ -194,6 +194,7 @@
       case 're': r = actRe(m, seat); break;
       case 'schieb': r = actSchieb(m, seat, a); break;
       case 'ready': r = actReady(m, seat); break;
+      case 'ack': r = actAck(m, seat); break;
       default: r = err('Unbekannte Aktion');
     }
     if (!r || !r.error) m.seq++;
@@ -287,7 +288,16 @@
     }
     g.game = { type, hand, ouvert, schneiderA, schwarzA };
     g.cards12 = g.hands[seat].concat(g.skat);
-    beginPlay(m);
+    // Ansage allen zeigen – jeder bestätigt mit OK, dann geht es los
+    g.phase = 'announce'; g.turn = null;
+    g.acks = [false, false, false]; g.acks[seat] = true;
+    return { ok: true };
+  }
+  function actAck(m, seat) {
+    const g = m.g;
+    if (g.phase !== 'announce') return err('Nicht möglich');
+    g.acks[seat] = true;
+    if (g.acks.every(x => x)) beginPlay(m);
     return { ok: true };
   }
   function actKontra(m, seat) {
@@ -514,7 +524,7 @@
       declarer: g.declarer, game: g.game, gameName: gameName(g.game), tookSkat: g.tookSkat,
       trick: g.trick, turn: g.phase === 'bid' ? g.bid.turn : g.turn, leader: g.leader,
       lastTrick: g.lastTrick, trickCount: g.trickCount, tricksPlayed: g.tricks.length,
-      kontra: g.kontra, ready: g.ready
+      kontra: g.kontra, ready: g.ready, acks: g.acks || null
     });
     if (g.phase === 'play' && g.turn === seat) v.legal = legalCards(g.hands[seat], g.trick, type);
     // eigener Skat (gedrückt) sichtbar für den Alleinspieler
@@ -638,6 +648,7 @@
     const g = m.g; if (!g) return null;
     const hand = g.hands[seat];
     if (g.phase === 'done') return g.ready[seat] ? null : { a: 'ready' };
+    if (g.phase === 'announce') return g.acks[seat] ? null : { a: 'ack' };
     if (g.phase === 'bid') {
       const b = g.bid; if (b.turn !== seat) return null;
       const bg = bestGame(hand, true);

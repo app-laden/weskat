@@ -12,7 +12,7 @@
 <link rel="icon" href="icon-192.png">
 <link rel="apple-touch-icon" href="icon-180.png">
 <title>WeSkat</title>
-<script>const VERSION = '0.7.1';</script>
+<script>const VERSION = '0.8.0';</script>
 <style>
 :root{
   --felt1:#16703f; --felt2:#0a4626; --gold:#f2c14e; --ink:#f4f1e8; --dim:rgba(244,241,232,.72);
@@ -126,6 +126,16 @@ video.scan{width:100%;max-width:340px;aspect-ratio:1;object-fit:cover;border-rad
 .sdrag{display:flex;gap:8px;margin-top:10px;touch-action:none}
 .stile{flex:1;background:#fff;color:#123;border-radius:12px;padding:8px 0 6px;display:flex;flex-direction:column;align-items:center;gap:2px;font-size:12.5px;font-weight:700;cursor:grab;box-shadow:0 2px 6px rgba(0,0,0,.3);transition:transform .15s}
 .stile.drag{transition:none;z-index:2;box-shadow:0 0 0 3px var(--gold),0 8px 18px rgba(0,0,0,.45);cursor:grabbing}
+.av .crown{position:absolute;left:-9px;top:-13px;width:22px;height:22px;transform:rotate(-18deg);filter:drop-shadow(0 1px 2px rgba(0,0,0,.5))}
+.crown svg{width:100%;height:100%;display:block}
+.av.declav{box-shadow:0 0 0 2px #f7cf4a,0 0 10px rgba(247,207,74,.7)}
+.crown.sm{display:inline-block;width:20px;height:20px;vertical-align:-3px}
+.pbox.ann{text-align:center;width:auto;min-width:240px;padding:12px 16px}
+.annh{font-size:15px;color:var(--dim)}.annh b{color:var(--ink)}
+.anng{display:flex;align-items:center;justify-content:center;gap:10px;font-size:24px;font-weight:800;margin:8px 0 2px;color:var(--gold)}
+.anng svg{background:#fff;border-radius:8px;padding:4px;box-sizing:content-box}
+.gico{display:inline-flex;width:34px;height:34px;padding:4px;background:#fff;color:#123;border-radius:8px;align-items:center;justify-content:center;font-size:22px}
+.annx{font-size:13px;color:var(--dim);margin-bottom:10px}
 #kbtn{position:absolute;right:10px;z-index:24}
 .kb{padding:7px 14px;border-radius:16px;font-weight:800;font-size:14px;background:rgba(242,193,78,.92);color:#2b1d00;box-shadow:0 2px 8px rgba(0,0,0,.35)}
 .pbox .q{text-align:center;font-size:16px;margin:2px 0 10px;line-height:1.35}

@@ -179,6 +179,7 @@
     if (g.phase === 'play') delay = g.trick.length === 0 && g.tricks.length ? 1900 : 750;
     if (g.phase === 'done') delay = 400;
     if (g.phase === 'discard' || g.phase === 'declare') delay = 1100;
+    if (g.phase === 'announce') delay = 500;
     H.botT = setTimeout(() => {
       if (!H || H.match !== m) return;
       const a = Skat.botAction(m, seat);
@@ -664,6 +665,7 @@
     const myTurnNow = v.turn === v.seat && ['bid', 'skat', 'discard', 'declare', 'play', 'schieben'].includes(v.phase);
     const myTurnBefore = prev && prev.turn === prev.seat && prev.phase === v.phase;
     if (myTurnNow && !myTurnBefore) vibrate(25);
+    if (v.phase === 'announce' && v.acks && !v.acks[v.seat] && (!prev || prev.phase !== 'announce')) vibrate(25);
     T.prev = v;
     T.pending = null;
     renderInfo(v); renderPlates(v); renderOpp(v); renderTrick(v); renderHand(v); renderPanel(v); renderKontra(v); renderConn();
@@ -711,11 +713,13 @@
       const tc = v.phase === 'play' || v.phase === 'done' ? ` · ${v.trickCount[s]} St.` : '';
       let bub = T.bubbles[s] && T.bubbles[s].until > Date.now() ? T.bubbles[s].text : null;
       if (!bub && v.phase === 'bid' && v.bid.said[s]) bub = v.bid.said[s];
-      const html = `<div class="av">${esc(initial(v.names[s]))}<span class="dot ${online ? '' : 'off'}"></span></div><div class="tx"><div class="nm">${esc(v.names[s])} <span style="font-weight:600;color:var(--dim);font-size:12.5px">${v.totals[s]}</span></div><div class="rl">${role}${tc}</div></div>${bub ? `<div class="bubble">${esc(bub)}</div>` : ''}`;
+      const isDecl = v.declarer === s && v.phase !== 'bid' && !(v.game && v.game.type === 'ramsch');
+      const html = `<div class="av ${isDecl ? 'declav' : ''}">${esc(initial(v.names[s]))}<span class="dot ${online ? '' : 'off'}"></span>${isDecl ? `<span class="crown" title="Alleinspieler">${CROWN}</span>` : ''}</div><div class="tx"><div class="nm">${esc(v.names[s])} <span style="font-weight:600;color:var(--dim);font-size:12.5px">${v.totals[s]}</span></div><div class="rl">${role}${tc}</div></div>${bub ? `<div class="bubble">${esc(bub)}</div>` : ''}`;
       if (el._html !== html) { el.innerHTML = html; el._html = html; }
       el.classList.toggle('turn', turnSeat === s);
     }
   }
+  const CROWN = '<svg viewBox="0 0 24 24"><path d="M3 8.5l4.6 3.6L12 4.5l4.4 7.6L21 8.5l-1.9 10H4.9z" fill="#f7cf4a" stroke="#7a5600" stroke-width="1.3" stroke-linejoin="round"/><circle cx="3" cy="8.2" r="1.6" fill="#f7cf4a" stroke="#7a5600"/><circle cx="12" cy="4.2" r="1.6" fill="#f7cf4a" stroke="#7a5600"/><circle cx="21" cy="8.2" r="1.6" fill="#f7cf4a" stroke="#7a5600"/><rect x="4.9" y="16.2" width="14.2" height="2.3" fill="#e0a920"/></svg>';
   function bubble(v, seat, text) {
     T.bubbles[seat] = { text, until: Date.now() + 2600 };
     setTimeout(() => { if (A.view) renderPlates(A.view); }, 2700);
@@ -1047,6 +1051,21 @@
           };
         }
       };
+    }
+    if (v.phase === 'announce') {
+      const g = v.game, acks = v.acks || [true, true, true];
+      if (!acks[meS]) {
+        const icon = ['c', 's', 'h', 'd'].includes(g.type) ? Cards.pipSvg(g.type, 34) : `<span class="gico">${g.type === 'grand' ? 'G' : '0'}</span>`;
+        return {
+          sig: 'an' + v.gameNo, html: `<div class="pbox ann"><div class="annh"><span class="crown sm">${CROWN}</span> <b>${N(v.declarer)}</b> spielt</div>
+            <div class="anng">${icon}<span>${esc(v.gameName)}</span></div>
+            <div class="annx">Reizwert ${v.bid.value}${g.ouvert ? ' · Karten liegen offen' : ''}</div>
+            <button class="btn pri" id="annOk">OK</button></div>`,
+          bind: p => { p.querySelector('#annOk').onclick = () => act({ a: 'ack' }); }
+        };
+      }
+      const wait = [0, 1, 2].filter(x => !acks[x]).map(N).join(', ');
+      return { sig: 'aw' + acks.join(), html: `<div class="waitmsg">${esc(v.gameName)} – warte auf OK von ${wait}</div>` };
     }
     if (v.phase === 'schieben') {
       const s = v.schieb;
