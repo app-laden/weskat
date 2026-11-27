@@ -1,3 +1,4 @@
+/* WeSkat – Copyright (C) 2026 app-laden – GPL-3.0-or-later, siehe LICENSE */
 /* Verbindung der drei Handys
    - online: PeerJS (Vermittlung über 0.peerjs.com, danach direkt; notfalls über TURN-Relais)
    - offline: WebRTC im lokalen Netz (Hotspot), Austausch der Verbindungsdaten per QR-Code in beide Richtungen

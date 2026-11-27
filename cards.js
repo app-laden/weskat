@@ -1,3 +1,4 @@
+/* WeSkat – Copyright (C) 2026 app-laden – GPL-3.0-or-later, siehe LICENSE */
 /* Kartenbilder als SVG (französisches Blatt, wahlweise vierfarbig wie im Turnier) */
 (function (root) {
   'use strict';

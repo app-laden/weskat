@@ -1,3 +1,4 @@
+/* WeSkat – Copyright (C) 2026 app-laden – GPL-3.0-or-later, siehe LICENSE */
 /* Skat – Regelwerk (läuft auf dem Tisch-Handy, prüft jeden Zug) */
 (function (root) {
   'use strict';
@@ -23,6 +24,7 @@
     schiebenNoJacks: true, // Buben dürfen nicht geschoben werden
     jungfrau: true,        // Jungfrau verdoppelt
     durchmarsch: true,     // Durchmarsch im Ramsch
+    ramschGrandHand: true, // in Ramschrunden reihum: Grand Hand? Ramsch wird nachgeholt
     scoring: 'simple'      // 'simple' | 'seeger'
   };
   const OFFICIAL = Object.assign({}, DEFAULT_RULES, {
@@ -132,7 +134,8 @@
   const roles = dealer => ({ V: (dealer + 1) % 3, M: (dealer + 2) % 3, H: dealer });
 
   function startGame(m) {
-    m.dealer = (m.dealer + 1) % 3;
+    if (m.repeatDealer) m.repeatDealer = false; // nachgeholter Ramsch: gleicher Geber
+    else m.dealer = (m.dealer + 1) % 3;
     m.gameNo++;
     const d = shuffle(newDeck());
     const R = roles(m.dealer);
@@ -154,7 +157,10 @@
       schieb: null, result: null, ready: [false, false, false], log: []
     };
     m.g = g;
-    if (g.forcedRamsch) startRamsch(m);
+    if (g.forcedRamsch && m.rules.ramschGrandHand) {
+      const R = roles(m.dealer);
+      g.phase = 'grandask'; g.gask = { order: [R.V, R.M, R.H], idx: 0, said: [null, null, null] }; g.turn = R.V;
+    } else if (g.forcedRamsch) startRamsch(m);
     m.seq++;
     return m;
   }
@@ -172,7 +178,25 @@
 
   function beginPlay(m) {
     const g = m.g, R = roles(m.dealer);
-    g.phase = 'play'; g.leader = R.V; g.turn = R.V; g.trick = [];
+    const first = g.grandInRamsch ? g.declarer : R.V; // Grand Hand im Ramsch: Spieler kommt raus
+    g.phase = 'play'; g.leader = first; g.turn = first; g.trick = [];
+  }
+  // Ramschrunde: reihum fragen, ob jemand Grand Hand spielt
+  function actGrandAsk(m, seat, yes) {
+    const g = m.g, q = g.gask;
+    if (g.phase !== 'grandask' || g.turn !== seat) return err('Du bist nicht dran');
+    if (yes) {
+      q.said[seat] = 'Grand Hand!';
+      g.grandInRamsch = true; g.forcedRamsch = false;
+      g.declarer = seat; g.bid.value = 0; g.tookSkat = false;
+      g.game = { type: 'grand', hand: true, ouvert: false, schneiderA: false, schwarzA: false };
+      g.cards12 = g.hands[seat].concat(g.skat);
+      g.phase = 'announce'; g.turn = null; g.acks = [false, false, false]; g.acks[seat] = true;
+      return { ok: true };
+    }
+    q.said[seat] = 'Nein'; q.idx++;
+    if (q.idx >= 3) startRamsch(m); else g.turn = q.order[q.idx];
+    return { ok: true };
   }
 
   function err(msg) { return { error: msg }; }
@@ -195,6 +219,8 @@
       case 'schieb': r = actSchieb(m, seat, a); break;
       case 'ready': r = actReady(m, seat); break;
       case 'ack': r = actAck(m, seat); break;
+      case 'grandhand': r = actGrandAsk(m, seat, true); break;
+      case 'nogrand': r = actGrandAsk(m, seat, false); break;
       default: r = err('Unbekannte Aktion');
     }
     if (!r || !r.error) m.seq++;
@@ -448,7 +474,8 @@
       const lastWasRe = g.kontra.re;
       if ((lastWasRe && !won) || (!lastWasRe && won)) trig.push(lastWasRe ? 'Re verloren' : 'Kontra verloren');
     }
-    res.bockTriggers = trig;
+    // Grand Hand statt Ramsch (Ramschrunde): löst keine Bockrunde aus
+    res.bockTriggers = g.grandInRamsch ? [] : trig;
     return res;
   }
   function calcRamsch(m) {
@@ -488,7 +515,8 @@
     res.early = early; res.bock = g.bock;
     for (let s = 0; s < 3; s++) m.totals[s] += res.deltas[s];
     // Warteschlange: aktuelles Bock/Ramsch-Spiel verbraucht
-    if (m.queue.length) m.queue.shift();
+    if (g.grandInRamsch) m.repeatDealer = true;      // Ramsch wird nachgeholt, gleicher Geber
+    else if (m.queue.length) m.queue.shift();
     if (m.rules.bock) {
       for (const t of res.bockTriggers) {
         const L = m.rules.bockLen || 3;
@@ -524,7 +552,8 @@
       declarer: g.declarer, game: g.game, gameName: gameName(g.game), tookSkat: g.tookSkat,
       trick: g.trick, turn: g.phase === 'bid' ? g.bid.turn : g.turn, leader: g.leader,
       lastTrick: g.lastTrick, trickCount: g.trickCount, tricksPlayed: g.tricks.length,
-      kontra: g.kontra, ready: g.ready, acks: g.acks || null
+      kontra: g.kontra, ready: g.ready, acks: g.acks || null,
+      gask: g.gask ? { said: g.gask.said } : null, grandInRamsch: !!g.grandInRamsch
     });
     if (g.phase === 'play' && g.turn === seat) v.legal = legalCards(g.hands[seat], g.trick, type);
     // eigener Skat (gedrückt) sichtbar für den Alleinspieler
@@ -649,6 +678,11 @@
     const hand = g.hands[seat];
     if (g.phase === 'done') return g.ready[seat] ? null : { a: 'ready' };
     if (g.phase === 'announce') return g.acks[seat] ? null : { a: 'ack' };
+    if (g.phase === 'grandask') {
+      if (g.turn !== seat) return null;
+      const jacks = hand.filter(c => rank(c) === 'J').length, aces = hand.filter(c => rank(c) === 'A').length;
+      return (jacks >= 3 && aces >= 2) || (jacks === 4 && aces >= 1) ? { a: 'grandhand' } : { a: 'nogrand' };
+    }
     if (g.phase === 'bid') {
       const b = g.bid; if (b.turn !== seat) return null;
       const bg = bestGame(hand, true);

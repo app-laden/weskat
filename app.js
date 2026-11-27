@@ -1,3 +1,5 @@
+/* WeSkat – Copyright (C) 2026 app-laden
+   Freie Software unter der GNU General Public License, Version 3 oder später (siehe LICENSE). Ohne jede Gewähr. */
 /* Skat – Oberfläche und Spielablauf zwischen den Handys */
 (function () {
   'use strict';
@@ -180,6 +182,7 @@
     if (g.phase === 'done') delay = 400;
     if (g.phase === 'discard' || g.phase === 'declare') delay = 1100;
     if (g.phase === 'announce') delay = 500;
+    if (g.phase === 'grandask') delay = 900;
     H.botT = setTimeout(() => {
       if (!H || H.match !== m) return;
       const a = Skat.botAction(m, seat);
@@ -233,7 +236,7 @@
     if (!H || !H.pair) return;
     const pr = H.pair;
     sheet('Mitspieler koppeln', `<div class="pairsheet">
-      <p><b>1.</b> Mitspieler wählt „Platz nehmen“ → <i>Ohne Netz</i> und scannt diesen Code:</p>
+      <p><b>1.</b> Mitspieler wählt „Platz nehmen“ → <i>Ohne Internet</i> und scannt diesen Code:</p>
       <div class="qr">${Net.qrSvg(pr.o.code, 'L')}</div>
       <p><b>2.</b> Dann zeigt sein Handy einen Antwort-Code. Den hier scannen:</p>
       <video class="scan" id="pv" playsinline muted style="display:none"></video>
@@ -368,11 +371,11 @@
     return `<div class="logo"><div class="fan">${cs.map((c, i) => `<img src="${Cards.faceUrl(c)}" style="transform:rotate(${(i - 1) * 18}deg)">`).join('')}</div><h1>WeSkat</h1></div>`;
   }
   function connSeg() {
-    const o = [['internet', 'Mit Internet'], ['hotspot', 'Hotspot mit Netz'], ['offline', 'Ohne Netz']];
+    if (prefs.conn !== 'offline') prefs.conn = 'internet';
+    const o = [['internet', 'Mit Internet'], ['offline', 'Ohne Internet']];
     return `<div class="seg" id="conn">${o.map(([k, t]) => `<button data-k="${k}" class="${prefs.conn === k ? 'on' : ''}">${t}</button>`).join('')}</div>
       <p class="hint">${{
-      internet: 'Jeder nutzt seine eigene Internetverbindung (mobile Daten). Kein gemeinsames WLAN nötig.',
-      hotspot: 'Ein Handy macht einen Hotspot auf, die anderen verbinden sich damit und haben darüber Internet. Spielt sich dann wie „Mit Internet“.',
+      internet: 'Jeder nutzt seine eigene Internetverbindung (mobile Daten), kein gemeinsames WLAN nötig. Hat nur ein Handy Netz, macht es einen Hotspot auf – die anderen haben darüber Internet.',
       offline: 'Kein Netz: Ein Handy macht einen Hotspot auf, die anderen verbinden sich damit. Gekoppelt wird per QR-Code in beide Richtungen.'
     }[prefs.conn]}</p>`;
   }
@@ -405,7 +408,7 @@
           <p class="hint">Mitspieler: „Am Tisch Platz nehmen“, Code eingeben oder QR-Code scannen (auch mit der normalen Kamera-App).</p>
           <div class="status">${esc(H.status)}</div></div>`;
       } else {
-        top = `<div class="card-box"><h2>Ohne Netz koppeln</h2>
+        top = `<div class="card-box"><h2>Ohne Internet koppeln</h2>
           <p class="hint" style="margin-top:0">1. Hotspot auf diesem Handy einschalten. 2. Die beiden anderen verbinden sich mit dem Hotspot (WLAN). 3. Für jeden Mitspieler „Mitspieler koppeln“ tippen.</p>
           ${n < 3 ? `<button class="btn pri" id="bPair">Mitspieler koppeln (${n}/3)</button>` : ''}</div>`;
       }
@@ -439,7 +442,7 @@
       if (st === 'answer') body = `<p><b>2.</b> Jetzt diesen Code mit dem Tisch-Handy scannen lassen:</p><div class="qr">${Net.qrSvg(C.answer, 'L')}</div><p class="status">Warte auf Verbindung …</p>`;
       else body = `<p><b>1.</b> Mit dem Hotspot des Tisch-Handys verbinden. Dann den Code scannen, den das Tisch-Handy zeigt:</p>
         <video class="scan" id="vid" playsinline muted></video><p class="status" id="st">Kamera startet …</p>`;
-      return `<div class="page">${logo()}<div class="card-box"><h2>Ohne Netz koppeln</h2>${body}</div><button class="btn" id="bBack">Abbrechen</button></div>`;
+      return `<div class="page">${logo()}<div class="card-box"><h2>Ohne Internet koppeln</h2>${body}</div><button class="btn" id="bBack">Abbrechen</button></div>`;
     },
     clientWait() {
       const st = C ? C.status : '';
@@ -539,7 +542,7 @@
       if (v && !scanStop) {
         Net.scan(v, async txt => {
           scanStop = null;
-          if (!/^S1\|o\|/.test(txt)) { toast('Das ist kein Tisch-Code (Ohne Netz)'); C.offStage = 'scan'; A.screen = 'joinOffline'; $('#app')._html = ''; render(); return; }
+          if (!/^S1\|o\|/.test(txt)) { toast('Das ist kein Tisch-Code (Ohne Internet)'); C.offStage = 'scan'; A.screen = 'joinOffline'; $('#app')._html = ''; render(); return; }
           try {
             const ans = await Net.rtcAnswer(txt);
             C.answer = ans.code; C.offStage = 'answer'; render();
@@ -662,7 +665,7 @@
       if (!prev.kontra.re && v.kontra.re) { bubble(v, v.declarer, 'Re!'); vibrate(40); }
       if (prev.declarer == null && v.declarer != null && v.declarer !== v.seat) bubble(v, v.declarer, 'Ich spiele');
     }
-    const myTurnNow = v.turn === v.seat && ['bid', 'skat', 'discard', 'declare', 'play', 'schieben'].includes(v.phase);
+    const myTurnNow = v.turn === v.seat && ['bid', 'skat', 'discard', 'declare', 'play', 'schieben', 'grandask'].includes(v.phase);
     const myTurnBefore = prev && prev.turn === prev.seat && prev.phase === v.phase;
     if (myTurnNow && !myTurnBefore) vibrate(25);
     if (v.phase === 'announce' && v.acks && !v.acks[v.seat] && (!prev || prev.phase !== 'announce')) vibrate(25);
@@ -694,11 +697,13 @@
     if (v.game && v.game.type === 'ramsch') b.push('<span class="badge ramsch">RAMSCH</span>');
     if (v.kontra && v.kontra.k) b.push(`<span class="badge kontra">${v.kontra.re ? 'RE' : 'KONTRA'}</span>`);
     if (v.phase === 'bid') l2 = 'Reizen' + (v.bid.value ? ' · ' + v.bid.value : '');
+    else if (v.phase === 'grandask') l2 = 'Ramschrunde: Grand Hand?';
     else if (v.phase === 'skat' || v.phase === 'discard' || v.phase === 'declare') l2 = esc(v.names[v.declarer]) + ' spielt · Reizwert ' + v.bid.value;
     else if (v.phase === 'schieben') l2 = 'Schieberamsch';
-    else if (v.game && v.game.type !== 'ramsch') l2 = `${esc(v.names[v.declarer])}: <b style="font-size:13.5px">${esc(v.gameName)}</b> · ${v.bid.value}`;
+    else if (v.game && v.game.type !== 'ramsch') l2 = `${esc(v.names[v.declarer])}: <b style="font-size:13.5px">${esc(v.gameName)}</b>${v.bid.value ? ' · ' + v.bid.value : ''}`;
     else if (v.game) l2 = 'Ramsch';
-    const q = v.queue && v.queue.length ? ` · noch ${v.queue.filter(x => x === 'B').length ? v.queue.filter(x => x === 'B').length + '× Bock' : ''}${v.queue.filter(x => x === 'R').length ? ' ' + v.queue.filter(x => x === 'R').length + '× Ramsch' : ''}` : '';
+    const nb = (v.queue || []).filter(x => x === 'B').length, nr = (v.queue || []).filter(x => x === 'R').length;
+    const q = (nb ? ` <span class="badge bq" title="Bockspiele vorgemerkt">B×${nb}</span>` : '') + (nr ? ` <span class="badge rq" title="Ramschspiele vorgemerkt">R×${nr}</span>` : '');
     T.el.info.innerHTML = l1 + q + '<br>' + l2 + ' ' + b.join('');
   }
   function renderPlates(v) {
@@ -713,6 +718,7 @@
       const tc = v.phase === 'play' || v.phase === 'done' ? ` · ${v.trickCount[s]} St.` : '';
       let bub = T.bubbles[s] && T.bubbles[s].until > Date.now() ? T.bubbles[s].text : null;
       if (!bub && v.phase === 'bid' && v.bid.said[s]) bub = v.bid.said[s];
+      if (!bub && v.phase === 'grandask' && v.gask && v.gask.said[s]) bub = v.gask.said[s];
       const isDecl = v.declarer === s && v.phase !== 'bid' && !(v.game && v.game.type === 'ramsch');
       const html = `<div class="av ${isDecl ? 'declav' : ''}">${esc(initial(v.names[s]))}<span class="dot ${online ? '' : 'off'}"></span>${isDecl ? `<span class="crown" title="Alleinspieler">${CROWN}</span>` : ''}</div><div class="tx"><div class="nm">${esc(v.names[s])} <span style="font-weight:600;color:var(--dim);font-size:12.5px">${v.totals[s]}</span></div><div class="rl">${role}${tc}</div></div>${bub ? `<div class="bubble">${esc(bub)}</div>` : ''}`;
       if (el._html !== html) { el.innerHTML = html; el._html = html; }
@@ -817,7 +823,7 @@
       el.classList.toggle('win', !!(T.showLast && T.showLast.winner === t.seat && display === T.showLast.cards));
     });
     // Skat in der Mitte (Reizen / Skat aufnehmen / Schieben)
-    const showSkat = ['bid', 'skat', 'schieben'].includes(v.phase) && v.skatCount === 2;
+    const showSkat = ['bid', 'skat', 'schieben', 'grandask'].includes(v.phase) && v.skatCount === 2;
     if (showSkat && !T.skatEls.length) {
       const g = T.geom;
       T.skatEls = [0, 1].map(i => {
@@ -1052,6 +1058,16 @@
         }
       };
     }
+    if (v.phase === 'grandask') {
+      if (v.turn !== meS) return { sig: 'gw' + v.turn, html: `<div class="waitmsg">Ramschrunde: ${N(v.turn)} überlegt, ob er Grand Hand spielt …</div>` };
+      return {
+        sig: 'ga' + v.gameNo, html: `<div class="pbox cp"><div class="q"><b>Ramschrunde</b> – spielst du <b>Grand Hand</b>?<br><small style="color:var(--dim)">Du kommst raus, der Ramsch wird danach nachgeholt.</small></div><div class="btns"><button class="btn pri" data-a="grandhand">Grand Hand</button><button class="btn" data-a="nogrand">Nein</button></div></div>`,
+        bind: p => p.querySelectorAll('[data-a]').forEach(x => x.onclick = () => {
+          if (x.dataset.a === 'grandhand' && !confirm('Grand Hand spielen?')) return;
+          act({ a: x.dataset.a });
+        })
+      };
+    }
     if (v.phase === 'announce') {
       const g = v.game, acks = v.acks || [true, true, true];
       if (!acks[meS]) {
@@ -1059,7 +1075,7 @@
         return {
           sig: 'an' + v.gameNo, html: `<div class="pbox ann"><div class="annh"><span class="crown sm">${CROWN}</span> <b>${N(v.declarer)}</b> spielt</div>
             <div class="anng">${icon}<span>${esc(v.gameName)}</span></div>
-            <div class="annx">Reizwert ${v.bid.value}${g.ouvert ? ' · Karten liegen offen' : ''}</div>
+            <div class="annx">${v.grandInRamsch ? 'statt Ramsch – kommt raus' : 'Reizwert ' + v.bid.value}${g.ouvert ? ' · Karten liegen offen' : ''}</div>
             <button class="btn pri" id="annOk">OK</button></div>`,
           bind: p => { p.querySelector('#annOk').onclick = () => act({ a: 'ack' }); }
         };
@@ -1173,6 +1189,7 @@
     ['bockGrandHand', 'Auslöser: Grand Hand verloren', '', 'bock'],
     ['bock120', 'Auslöser: 120:0 Augen', '', 'bock'],
     ['ramschAfterBock', 'Ramschrunde nach jeder Bockrunde', '', 'bock'],
+    ['ramschGrandHand', 'Grand Hand in der Ramschrunde', 'Reihum wird gefragt, ob jemand Grand Hand spielt. Wer spielt, kommt raus; der Ramsch wird danach mit demselben Geber nachgeholt. Dieses Spiel löst keine Bockrunde aus.', 'ramschAfterBock'],
     ['ramsch', 'Ramsch, wenn alle passen (Hausregel)', 'Sonst wird neu gegeben.'],
     ['schieben', 'Schieberamsch', 'Skat aufnehmen und 2 Karten weitergeben oder ungesehen schieben (×2).', 'ramsch'],
     ['schiebenNoJacks', 'Keine Buben schieben', '', 'ramsch'],
@@ -1279,6 +1296,20 @@
     box.addEventListener('pointerup', end);
     box.addEventListener('pointercancel', end);
   }
+  // Kontaktadresse nur als Bild (nicht als Text im Quellcode oder auf der Seite)
+  function mailImage() {
+    const K = [108, 107, 53, 127, 116, 110, 71, 117, 108, 107, 104, 115, 52, 119, 119, 104];
+    const txt = K.slice().reverse().map(c => String.fromCharCode(c - 7)).join('');
+    const c = document.createElement('canvas'), dpr = window.devicePixelRatio || 1;
+    const font = '600 18px -apple-system,Segoe UI,Roboto,Arial,sans-serif';
+    const x = c.getContext('2d'); x.font = font;
+    const w = Math.ceil(x.measureText(txt).width) + 24, h = 40;
+    c.width = w * dpr; c.height = h * dpr; c.style.width = w + 'px'; c.style.height = h + 'px';
+    c.style.background = '#fffbe9'; c.style.borderRadius = '10px'; c.style.display = 'block'; c.style.margin = '6px 0';
+    const y = c.getContext('2d'); y.scale(dpr, dpr); y.font = font; y.fillStyle = '#2b2100'; y.textBaseline = 'middle';
+    y.fillText(txt, 12, h / 2 + 1);
+    return c;
+  }
   function showHelp(section) {
     sheet('Hilfe', `
       <h3>So geht's</h3>
@@ -1287,8 +1318,8 @@
       <p><b>Zu zweit:</b> Am Tisch „+ Computer als Mitspieler“ tippen – der Computer übernimmt den dritten Platz, der zweite Mensch verbindet sich wie gewohnt.</p>
       <h3>Verbindung</h3>
       <ul><li><b>Mit Internet</b> (empfohlen): Jeder nutzt seine mobilen Daten. Der Tisch zeigt einen Code aus 4 Zeichen und einen QR-Code. Ein gemeinsames WLAN ist nicht nötig, der Datenverbrauch ist winzig.</li>
-      <li><b>Hotspot mit Netz</b>: Hat nur ein Handy Netz, macht es einen Hotspot auf. Die anderen verbinden sich damit und haben darüber Internet – dann wie „Mit Internet“.</li>
-      <li><b>Ohne Netz</b>: Ein Handy macht einen Hotspot auf (auch ohne Netz), die anderen verbinden sich damit. Gekoppelt wird per QR-Code in beide Richtungen: Mitspieler scannt den Code des Tisches, dann scannt der Tisch den Antwort-Code des Mitspielers. Die App muss vorher einmal mit Internet geöffnet worden sein.</li></ul>
+      <li>Hat nur ein Handy Netz, macht es einen Hotspot auf. Die anderen verbinden sich damit und haben darüber Internet – dann ebenfalls „Mit Internet“ wählen.</li>
+      <li><b>Ohne Internet</b>: Ein Handy macht einen Hotspot auf (auch ohne Netz), die anderen verbinden sich damit. Gekoppelt wird per QR-Code in beide Richtungen: Mitspieler scannt den Code des Tisches, dann scannt der Tisch den Antwort-Code des Mitspielers. Die App muss vorher einmal mit Internet geöffnet worden sein.</li></ul>
       <p>Bricht die Verbindung ab (z. B. Bildschirm gesperrt), verbindet sich die App mit Internet von selbst neu; ohne Netz über „Neu koppeln“. Der Spielstand bleibt auf dem Tisch-Handy erhalten, auch wenn die App dort neu gestartet wird („Tisch fortsetzen“).</p>
       <h3>Bedienung</h3>
       <ul><li>Karte antippen hebt sie an, nochmal antippen oder nach oben wischen spielt sie. Spielbare Karten sind hell, die anderen abgedunkelt.</li>
@@ -1303,8 +1334,18 @@
       <h3>Haftungsausschluss</h3>
       <p>Die App wird ohne Gewähr bereitgestellt. Für Fehler, Ausfälle oder falsch berechnete Spielstände wird keine Haftung übernommen. Kein Spiel um Geld.</p>
       <h3 id="h-about">Über diese App</h3>
-      <p>WeSkat – private, kostenlose App ohne Werbung. Kontakt und Rückmeldungen: github.com/app-laden<br>Version ${VERSION}. Verwendet PeerJS (MIT), qrcode-generator (MIT) und jsQR (Apache 2.0).</p>`,
-      sb => { if (section === 'about') { const e = $('#h-about', sb); if (e) e.scrollIntoView(); } });
+      <p>WeSkat – private, kostenlose App ohne Werbung, Spenden oder Verkauf.</p>
+      <p><b>Kontakt und Rückmeldungen</b> per E-Mail:</p>
+      <div id="mailBox"><button class="btn small" id="mailShow">E-Mail-Adresse anzeigen</button></div>
+      <p class="hint">Die Adresse wird nur als Bild angezeigt, damit Spam-Programme sie nicht finden. Bitte abtippen.</p>
+      <h3>Lizenzen</h3>
+      <p>WeSkat – © 2026 app-laden – ist freie Software unter der GNU General Public License, Version 3 oder später (GPL-3.0-or-later): Nutzung, Weitergabe und Änderung sind erlaubt; veränderte Fassungen müssen wieder unter der GPL mit Quellcode weitergegeben werden. Ohne jede Gewähr. Der vollständige Text liegt in der Datei LICENSE in der Ablage github.com/app-laden/weskat.</p>
+      <p>Verwendet: PeerJS (MIT, © Michelle Bu und Eric Zhang), qrcode-generator (MIT, © Kazuhiko Arase), jsQR (Apache License 2.0, github.com/cozmo/jsQR). Deren Lizenztexte stehen in THIRD-PARTY-LICENSES.txt.</p>
+      <p class="hint">Version ${VERSION}</p>`,
+      sb => {
+        if (section === 'about') { const e = $('#h-about', sb); if (e) e.scrollIntoView(); }
+        $('#mailShow', sb).onclick = () => { $('#mailBox', sb).innerHTML = ''; $('#mailBox', sb).appendChild(mailImage()); };
+      });
   }
 
   // ---------- Bildschirm wach halten ----------
@@ -1354,5 +1395,5 @@
   // ---------- Start ----------
   if (/#t=[A-Za-z0-9]{4}/.test(location.hash) && !TEST) A.screen = 'join';
   render();
-  window.__skat = { A, get H() { return H; }, get C() { return C; }, T, act };
+  window.__skat = { A, get H() { return H; }, get C() { return C; }, T, act, refresh: () => hostBroadcast() };
 })();
