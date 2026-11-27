@@ -120,8 +120,18 @@
     switch (m.t) {
       case 'hello': {
         let q = H.players.find(x => x.id === m.id);
+        if (!q && H.match) {
+          // laufendes Spiel: ein neuer Spieler übernimmt das Blatt eines nicht verbundenen Spielers
+          const free = H.players.find(x => !x.local && !x.bot && !x.online);
+          if (!free) { L.send({ t: 'full' }); return; }
+          const oldName = free.name, seat = seatOf(free.id);
+          if (free.link) { const ol = free.link; ol.onclose = null; try { ol.close(); } catch (e) { } free.link = null; }
+          free.id = m.id; H.seats[seat] = m.id;
+          q = free;
+          toast((m.name || 'Spieler') + ' übernimmt den Platz von ' + oldName, 4000);
+        }
         if (!q) {
-          if (H.match || H.players.length >= 3) { L.send({ t: 'full' }); return; }
+          if (H.players.length >= 3) { L.send({ t: 'full' }); return; }
           q = { id: m.id, name: m.name || 'Spieler' }; H.players.push(q);
         }
         if (q.local) { L.send({ t: 'full' }); return; }
@@ -590,6 +600,7 @@
     $('#tSize').onclick = () => { setSize((prefs.size || 0) + 1); toast('Kartengröße: ' + SIZES[prefs.size], 1200); };
     bindHand();
     T.built = true;
+    T.geom = null;
     requestWake();
   }
   const posOf = (v, s) => s === v.seat ? 'me' : s === (v.seat + 1) % 3 ? 'left' : 'right';
@@ -649,7 +660,8 @@
 
   function renderTable(v) {
     if (!T.built) buildTable();
-    if (!T.geom || T.resized) { applyGeometry(); T.resized = false; }
+    if (!T.geom || T.resized || T.geom.W < 50) { applyGeometry(); T.resized = false; }
+    if (T.geom.W < 50) { clearTimeout(T.geomT); T.geomT = setTimeout(() => { if (A.view && A.screen === 'game') relayout(); }, 300); }
     const prev = T.prev;
     if (T.gameNo !== v.gameNo) {
       // neues Spiel
@@ -677,16 +689,27 @@
     const el = T.el.conn;
     if (A.role === 'client' && C && C.status !== 'ok') {
       el.style.display = 'block';
-      el.innerHTML = C.mode === 'offline' ? 'Verbindung verloren <button id="reP">Neu koppeln</button>' : 'Verbindung unterbrochen – verbinde neu …';
-      const b = $('#reP'); if (b) b.onclick = () => { C.offStage = 'scan'; A.screen = 'joinOffline'; resetTable(); render(); };
+      el.innerHTML = C.mode === 'offline' ? 'Verbindung verloren <button id="reP">Neu koppeln</button>' : 'Verbindung unterbrochen – verbinde neu … <button id="reP">Jetzt</button>';
+      const b = $('#reP'); if (b) b.onclick = () => { if (C.mode === 'offline') { C.offStage = 'scan'; A.screen = 'joinOffline'; resetTable(); render(); } else { clientReconnect(); toast('Verbinde neu …'); } };
     } else if (A.role === 'host' && H) {
       const off = H.players.filter(p => !p.local && !p.online && !p.bot);
       if (off.length && H.match) {
         el.style.display = 'block';
-        el.innerHTML = esc(off.map(p => p.name).join(', ')) + ' nicht verbunden' + (H.mode === 'offline' ? ' <button id="reP">Koppeln</button>' : '');
-        const b = $('#reP'); if (b) b.onclick = hostPair;
+        el.innerHTML = esc(off.map(p => p.name).join(', ')) + ' nicht verbunden' + (H.mode === 'offline' ? ' <button id="reP">Koppeln</button>' : ' <button id="reP">Code zeigen</button>');
+        const b = $('#reP'); if (b) b.onclick = H.mode === 'offline' ? hostPair : showRejoin;
       } else el.style.display = 'none';
     } else el.style.display = 'none';
+  }
+  // Tisch-Code und QR-Code im laufenden Spiel (zum Wiederverbinden oder Übernehmen)
+  function showRejoin() {
+    if (!H) return;
+    if (H.mode === 'offline') { hostPair(); return; }
+    const url = location.origin + location.pathname.replace(/index\.html$/, '') + '#t=' + H.code;
+    const off = H.players.filter(p => !p.local && !p.online && !p.bot).map(p => esc(p.name));
+    sheet('Wieder an den Tisch', `<div style="text-align:center"><div class="bigcode">${esc(H.code)}</div>
+      ${H.mode !== 'test' ? `<div class="qr">${Net.qrSvg(url, 'M')}</div>` : ''}
+      <p class="hint">${off.length ? 'Nicht verbunden: <b>' + off.join(', ') + '</b>. ' : ''}Mit „Am Tisch Platz nehmen“ und diesem Code zurückkommen. Der gleiche Spieler bekommt sein Blatt zurück. Kommt jemand anderes, übernimmt er das Blatt des fehlenden Spielers.</p>
+      <div class="status">${esc(H.status || '')}</div></div>`);
   }
   function renderInfo(v) {
     let l1 = `<b>Spiel ${v.gameNo}</b> · ${esc(v.names[v.dealer])} gibt`;
@@ -1149,6 +1172,7 @@
   function showMenu() {
     const items = [['share', 'App teilen (QR-Code)'], ['list', 'Spielliste'], ['last', 'Letzter Stich'], ['rules', 'Regeln'], ['look', 'Darstellung'], ['help', 'Hilfe']];
     if (A.role === 'host' && H && H.mode === 'offline') items.push(['pair', 'Mitspieler neu koppeln']);
+    if (A.role === 'host' && H && H.mode !== 'offline' && H.mode !== 'demo') items.push(['rejoin', 'Tisch-Code zeigen (Wiederverbinden)']);
     items.push(A.role === 'host' ? ['end', H && H.mode === 'demo' ? 'Demo beenden' : 'Tisch beenden'] : ['leave', 'Tisch verlassen']);
     sheet('Menü', `<div class="menu">${items.map(([k, t]) => `<button data-k="${k}">${t}</button>`).join('')}</div>`, sb => {
       sb.onclick = e => {
@@ -1161,6 +1185,7 @@
         if (k === 'look') showLook();
         if (k === 'help') showHelp();
         if (k === 'pair') hostPair();
+        if (k === 'rejoin') showRejoin();
         if (k === 'end' && (H && H.mode === 'demo' ? true : confirm('Tisch beenden? Das Spiel endet für alle.'))) hostEnd();
         if (k === 'leave' && confirm('Tisch verlassen?')) clientLeave();
       };
@@ -1354,7 +1379,7 @@
   function releaseWake() { try { if (wake) wake.release(); } catch (e) { } wake = null; }
   document.addEventListener('visibilitychange', () => {
     if (document.hidden) return;
-    if (A.screen === 'game') requestWake();
+    if (A.screen === 'game') { requestWake(); setTimeout(relayout, 250); }
     if (C && C.mode !== 'offline') {
       if (!C.link) clientConnect();
       else if (C.last && Date.now() - C.last > 8000) clientReconnect();
@@ -1376,6 +1401,8 @@
     prefs.size = ((n % 3) + 3) % 3; savePrefs(); relayout();
   }
   window.addEventListener('resize', () => { clearTimeout(rsT); rsT = setTimeout(relayout, 150); });
+  window.addEventListener('orientationchange', () => { clearTimeout(rsT); rsT = setTimeout(relayout, 300); });
+  window.addEventListener('pageshow', () => setTimeout(relayout, 200));
 
   // ---------- Update (Service Worker) ----------
   if ('serviceWorker' in navigator && !TEST && location.protocol === 'https:') {
